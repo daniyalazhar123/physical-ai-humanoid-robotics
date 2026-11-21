@@ -25,7 +25,8 @@ Features a RAG (Retrieval-Augmented Generation) chatbot backend for intelligent 
 - **Frontend**: Docusaurus-based documentation website (`my-website/`)
 - **Backend**: FastAPI RAG chatbot (`backend-api/`)
 - **Database**: Neon Postgres with pgvector for embeddings and conversation history
-- **AI Services**: Google Gemini for responses, Grok as fallback
+- **AI Services**: Google Gemini for responses, Grok as fallback, Cohere for embeddings
+- **Vector Database**: Neon Postgres + pgvector, Embeddings via Cohere
 
 ---
 
@@ -38,6 +39,7 @@ The RAG chatbot backend can be deployed to Vercel. See [BACKEND_DEPLOYMENT.md](B
 - API keys for Google Gemini, Grok, and Neon Postgres
 
 ### Environment Variables (for backend)
+- `COHERE_API_KEY`
 - `GEMINI_API_KEY`
 - `GROK_API_KEY`
 - `NEON_URL`
@@ -95,6 +97,8 @@ The Docusaurus frontend is automatically deployed to Vercel via the existing Git
 - `GET /health` - Health check
 - `GET /test` - Test endpoint
 - `POST /api/v1/chat/chat` - Main chat functionality
+- `GET /api/v1/chat/conversation` - Conversation list
+- `GET /api/v1/content` - Content list
 - Auth routes: `POST /api/v1/auth/signup`, `POST /api/v1/auth/signin`, `POST /api/v1/auth/signout`, `GET /api/v1/auth/profile`
 
 API documentation available at `/docs` when backend is running.
