@@ -1,45 +1,41 @@
 // @ts-check
-// `@type` JSDoc annotations allow editor autocompletion and type checking
-// (when paired with `@ts-check`).
-// There are various equivalent ways to declare your Docusaurus config.
-// See: https://docusaurus.io/docs/api/docusaurus-config
 
 import {themes as prismThemes} from 'prism-react-renderer';
 
-// This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
-
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'Physical AI & Humanoid Robotics',
+  title: 'AI Physical Humanoids Robotics Engineering',
   tagline: 'A comprehensive textbook on AI Systems in the Physical World',
   favicon: 'img/favicon.ico',
 
-  // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
-  /*
-  future: {
-    v4: true, // Improve compatibility with the upcoming Docusaurus v4
-  },
-  */
-
-  // Set the production url of your site here
-  url: 'https://your-docusaurus-site.example.com',
-  // Set the /<baseUrl>/ pathname under which your site is served
-  // For GitHub pages deployment, it is often '/<projectName>/'
+  url: 'https://physical-ai-textbook.vercel.app',
   baseUrl: '/',
 
-  // GitHub pages deployment config.
-  // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'facebook', // Usually your GitHub org/user name.
-  projectName: 'docusaurus', // Usually your repo name.
+  organizationName: 'physical-ai',
+  projectName: 'physical-ai-humanoid-robotics',
 
-  onBrokenLinks: 'throw',
+  onBrokenLinks: 'warn',
 
-  // Even if you don't use internationalization, you can use this field to set
-  // useful metadata like html lang. For example, if your site is Chinese, you
-  // may want to replace "en" with "zh-Hans".
+  stylesheets: [
+    {
+      href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Noto+Nastaliq+Urdu:wght@400;500;700&display=swap',
+      type: 'text/css',
+    },
+  ],
+
   i18n: {
     defaultLocale: 'en',
-    locales: ['en'],
+    locales: ['en', 'ur'],
+    localeConfigs: {
+      en: {
+        label: 'English',
+        direction: 'ltr',
+      },
+      ur: {
+        label: 'اردو',
+        direction: 'rtl',
+      },
+    },
   },
 
   presets: [
@@ -49,7 +45,6 @@ const config = {
       ({
         docs: {
           sidebarPath: './sidebars.js',
-          // Remove editUrl to disable "edit this page" links
           remarkPlugins: [require('mdx-mermaid')],
         },
         blog: {
@@ -58,8 +53,6 @@ const config = {
             type: ['rss', 'atom'],
             xslt: true,
           },
-          // Remove editUrl to disable "edit this page" links
-          // Useful options to enforce blogging best practices
           onInlineTags: 'warn',
           onInlineAuthors: 'warn',
           onUntruncatedBlogPosts: 'warn',
@@ -71,32 +64,20 @@ const config = {
     ],
   ],
 
-  themes: [
-    '@docusaurus/theme-mermaid',
-  ],
-  plugins: [
-    // Add the root wrapper
-    function() {
-      return {
-        name: 'rag-chatbot-root-wrapper',
-        getClientModules() {
-          return [require.resolve('./src/components/RAGChatbot/RootWrapper.jsx')];
-        },
-      };
-    },
-  ],
+  themes: ['@docusaurus/theme-mermaid'],
+  plugins: [],
+
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
-      // Replace with your project's social card
       image: 'img/docusaurus-social-card.jpg',
       colorMode: {
         respectPrefersColorScheme: true,
       },
       navbar: {
-        title: 'Physical AI & Humanoid Robotics',
+        title: 'AI Physical Humanoids Robotics Engineering',
         logo: {
-          alt: 'Physical AI & Humanoid Robotics Logo',
+          alt: 'AI Physical Humanoids Robotics Engineering Logo',
           src: 'img/logo.png',
         },
         items: [
@@ -104,10 +85,14 @@ const config = {
             type: 'docSidebar',
             sidebarId: 'mainSidebar',
             position: 'left',
-            label: 'Courses', // Changed from 'Book Chapters'
+            label: 'Courses',
           },
-          {to: '/modules', label: 'Modules', position: 'left'}, // Changed from '/blog', label 'Blog'
+          {to: '/modules', label: 'Modules', position: 'left'},
           {to: '/new-developments', label: 'New Developments', position: 'left'},
+          {
+            type: 'localeDropdown',
+            position: 'right',
+          },
           {
             href: 'https://github.com/BasenAI',
             label: 'GitHub',
@@ -121,28 +106,34 @@ const config = {
           {
             title: 'Courses',
             items: [
-              { label: 'Course Introduction', to: '/docs/intro' },
-              { label: 'Physical AI & Humanoid Robotics', to: '/' },
-              { label: 'Chapter 1: Introduction', to: '/docs/my-book/chapter-1' },
-              { label: 'Chapter 2: ROS 2', to: '/docs/my-book/chapter-2' },
-              { label: 'Chapter 3: Simulation', to: '/docs/my-book/chapter-3' },
-              { label: 'Chapter 4: Computer Vision', to: '/docs/my-book/chapter-4' },
+              {label: 'Introduction', to: '/docs/intro'},
+              {label: 'Chapter 1: Introduction to Physical AI', to: '/docs/my-book/chapter-1'},
+              {label: 'Chapter 2: ROS 2', to: '/docs/my-book/chapter-2'},
+              {label: 'Chapter 3: Simulation and Modeling', to: '/docs/my-book/chapter-3'},
+              {label: 'Chapter 4: Computer Vision', to: '/docs/my-book/chapter-4'},
+              {label: 'Chapter 5: VLA Systems', to: '/docs/my-book/chapter-5'},
             ],
           },
           {
-            title: 'Modules',
+            title: 'Advanced',
             items: [
-              { label: 'All Modules', to: '/modules' },
-              { label: 'Chapter 5: VLA Systems', to: '/docs/my-book/chapter-5' },
-              { label: 'Chapter 6: Humanoid Development', to: '/docs/my-book/chapter-6' },
-              { label: 'Chapter 7: Conversational Robotics', to: '/docs/my-book/chapter-7' },
-              { label: 'Chapter 8: Advanced Concepts', to: '/docs/my-book/chapter-8' },
-              { label: 'Core Concepts', to: '/docs/core-concepts' },
-              { label: 'AI Concepts', to: '/docs/core-concepts/ai' },
+              {label: 'Chapter 6: Humanoid Development', to: '/docs/my-book/chapter-6'},
+              {label: 'Chapter 7: Conversational Robotics', to: '/docs/my-book/chapter-7'},
+              {label: 'Chapter 8: Advanced Concepts', to: '/docs/my-book/chapter-8'},
+              {label: 'Chapter 9: Advanced Topics', to: '/docs/my-book/chapter-9'},
+              {label: 'Chapter 10: Future Directions', to: '/docs/my-book/chapter-10'},
+            ],
+          },
+          {
+            title: 'Resources',
+            items: [
+              {label: 'GitHub Repo', href: 'https://github.com/BasenAI'},
+              {label: 'All Modules', to: '/modules'},
+              {label: 'New Developments', to: '/new-developments'},
             ],
           },
         ],
-        copyright: `Copyright © Daniyal Azhar. All rights reserved. The author retains full intellectual property rights. This work is published for educational purposes and is accessible for free public learning. No commercial reproduction, redistribution, or modification is permitted without written permission.`,
+        copyright: `Copyright © ${new Date().getFullYear()} Physical AI Textbook. All rights reserved.`,
       },
       prism: {
         theme: prismThemes.github,

@@ -1,20 +1,20 @@
-# Physical AI & Humanoid Robotics
+# AI Physical Humanoids Robotics Engineering
 
 🚀 **Live Website:**
 👉 [https://my-website-phi-puce.vercel.app](https://my-website-phi-puce.vercel.app)
 
-A Docusaurus-based interactive textbook and learning platform for **Physical AI**, **Humanoid Robotics**, and intelligent systems.
+A Docusaurus-based interactive textbook and learning platform for **AI Physical Humanoids Robotics Engineering**.
 Features a RAG (Retrieval-Augmented Generation) chatbot backend for intelligent Q&A about the textbook content.
 
 ---
 
 ## Features
 
-- 📚 Structured textbook chapters for Physical AI & Humanoid Robotics
+- 📚 Structured textbook chapters for AI Physical Humanoids Robotics Engineering
 - 🌐 Fast global deployment via **Vercel**
 - 🤖 RAG-based chatbot with semantic search capabilities
-- 🔗 Integration with Cohere, Qdrant, and Google Gemini
-- 💾 Conversation history persistence with Neon Postgres
+- 🔗 Integration with Google Gemini and Grok (fallback)
+- 💾 Conversation history persistence with Neon Postgres + pgvector
 - 🌍 Multilingual support (English + Urdu)
 - 🔧 Modular architecture (frontend Docusaurus + backend FastAPI)
 
@@ -24,9 +24,8 @@ Features a RAG (Retrieval-Augmented Generation) chatbot backend for intelligent 
 
 - **Frontend**: Docusaurus-based documentation website (`my-website/`)
 - **Backend**: FastAPI RAG chatbot (`backend-api/`)
-- **Vector Database**: Qdrant Cloud for semantic search
-- **Database**: Neon Postgres for conversation history
-- **AI Services**: Google Gemini for responses, Cohere for embeddings
+- **Database**: Neon Postgres with pgvector for embeddings and conversation history
+- **AI Services**: Google Gemini for responses, Grok as fallback
 
 ---
 
@@ -36,16 +35,12 @@ The RAG chatbot backend can be deployed to Vercel. See [BACKEND_DEPLOYMENT.md](B
 
 ### Prerequisites
 - Vercel account
-- API keys for Cohere, Qdrant, and Google Gemini
-- Neon Postgres database
+- API keys for Google Gemini, Grok, and Neon Postgres
 
 ### Environment Variables (for backend)
-- `COHERE_API_KEY`
-- `QDRANT_URL`
-- `QDRANT_API_KEY`
 - `GEMINI_API_KEY`
+- `GROK_API_KEY`
 - `NEON_URL`
-- `API_TOKEN`
 
 ---
 
@@ -59,12 +54,12 @@ The RAG chatbot backend can be deployed to Vercel. See [BACKEND_DEPLOYMENT.md](B
 
 2. Install dependencies:
    ```bash
-   yarn install
+   npm install
    ```
 
 3. Start the development server:
    ```bash
-   yarn start
+   npm start
    ```
 
 ### Frontend Deployment
@@ -92,21 +87,15 @@ The Docusaurus frontend is automatically deployed to Vercel via the existing Git
    uvicorn main:app --reload
    ```
 
-### Initialization
-Before using the RAG system, initialize the database and index content:
-```bash
-python initialize.py
-```
-
 ---
 
-## API Documentation
+## API Routes (Verified)
 
-The backend API provides:
-- `/api/v1/chat/chat` - Main chat functionality
-- `/api/v1/chat/conversation` - Conversation management
-- `/api/v1/content` - Content search and indexing
-- `/api/v1/health` - Health checks
+- `GET /` - Root status check
+- `GET /health` - Health check
+- `GET /test` - Test endpoint
+- `POST /api/v1/chat/chat` - Main chat functionality
+- Auth routes: `POST /api/v1/auth/signup`, `POST /api/v1/auth/signin`, `POST /api/v1/auth/signout`, `GET /api/v1/auth/profile`
 
 API documentation available at `/docs` when backend is running.
 
@@ -123,5 +112,4 @@ API documentation available at `/docs` when backend is running.
 
 ## License
 
-This project is licensed under the MIT License.
-
+This project is licensed under the 【entity-MIT¦canonical_name=MIT】 License.

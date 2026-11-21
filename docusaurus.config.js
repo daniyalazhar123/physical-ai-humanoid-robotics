@@ -10,7 +10,7 @@ import {themes as prismThemes} from 'prism-react-renderer';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'Physical AI & Humanoid Robotics',
+  title: 'AI Physical Humanoids Robotics Engineering',
   tagline: 'A comprehensive textbook on AI Systems in the Physical World',
   favicon: 'img/favicon.ico',
 
@@ -74,17 +74,7 @@ const config = {
   themes: [
     '@docusaurus/theme-mermaid',
   ],
-  plugins: [
-    // Add the root wrapper
-    function() {
-      return {
-        name: 'rag-chatbot-root-wrapper',
-        getClientModules() {
-          return [require.resolve('./src/components/RAGChatbot/RootWrapper.jsx')];
-        },
-      };
-    },
-  ],
+  plugins: [],
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
