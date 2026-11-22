@@ -1,34 +1,33 @@
-/**
- * Any CSS rules here will be applied to the entire website.
- */
-
-/* Custom Color Palette */
 :root {
-  --ifm-color-primary: #3f51b5; /* Indigo */
+  --ifm-color-primary: #3f51b5;
   --ifm-color-primary-dark: #303f9f;
   --ifm-color-primary-darker: #283593;
   --ifm-color-primary-darkest: #1a237e;
   --ifm-color-primary-light: #7986cb;
   --ifm-color-primary-lighter: #9fa8da;
   --ifm-color-primary-lightest: #c5cae9;
-  --ifm-color-secondary: #00bcd4; /* Cyan */
+  --ifm-color-secondary: #00bcd4;
   --ifm-color-success: #4caf50;
   --ifm-color-warning: #ffc107;
   --ifm-color-danger: #f44336;
   --ifm-color-info: #2196f3;
 
-  /* Text Colors */
-  --ifm-font-color-base: #212121; /* Dark grey for body text */
-  --ifm-font-color-secondary: #757575; /* Medium grey for secondary text */
-  --ifm-background-color: #f5f5f5; /* Light grey background */
+  --ifm-font-color-base: #212121;
+  --ifm-font-color-secondary: #757575;
+  --ifm-background-color: #f5f5f5;
   --ifm-background-color-dark: #e0e0e0;
 
-  /* Docusaurus defaults */
   --ifm-code-font-size: 95%;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+
+  /* Fonts */
+  --ifm-font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --ifm-font-family-monospace: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  --ifm-heading-font-family: 'Space Grotesk', 'Inter', -apple-system, sans-serif;
+  --ifm-font-weight-semibold: 600;
+  --ifm-heading-font-weight: 700;
 }
 
-/* Dark Mode Overrides */
 [data-theme='dark'] {
   --ifm-color-primary: #7986cb;
   --ifm-color-primary-dark: #5c6bc0;
@@ -39,33 +38,35 @@
   --ifm-color-primary-lightest: #e8eaf6;
   --ifm-color-secondary: #26c6da;
 
-  /* Text Colors */
-  --ifm-font-color-base: #e0e0e0; /* Light grey for body text */
-  --ifm-font-color-secondary: #bdbdbd; /* Lighter grey for secondary text */
-  --ifm-background-color: #212121; /* Dark background */
+  --ifm-font-color-base: #e0e0e0;
+  --ifm-font-color-secondary: #bdbdbd;
+  --ifm-background-color: #212121;
   --ifm-background-color-dark: #424242;
 
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
 }
 
-/* Custom Fonts (using system fonts for broad compatibility) */
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: "Roboto", sans-serif;
-  font-weight: 500;
+  font-family: var(--ifm-heading-font-family);
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
-/* Navbar logo styling */
+code, pre {
+  font-family: var(--ifm-font-family-monospace);
+}
+
 .navbar__logo img {
   width: 40px;
   height: 40px;
   object-fit: contain;
 }
 
-/* Further styling for specific components can go here */
 .footer {
   background-color: var(--ifm-color-primary-darkest);
   color: var(--ifm-font-color-base);
@@ -73,4 +74,137 @@ h1, h2, h3, h4, h5, h6 {
 
 .navbar {
   box-shadow: var(--ifm-navbar-shadow);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: rgba(33, 33, 33, 0.85) !important;
+}
+
+[data-theme='light'] .navbar {
+  background: rgba(245, 245, 245, 0.85) !important;
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+}
+
+[data-theme='light'] .glass {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.navbar__link::after {
+  content: '';
+  display: block;
+  width: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--ifm-color-primary), var(--ifm-color-secondary));
+  transition: width 0.3s ease;
+  border-radius: 2px;
+}
+
+.navbar__link:hover::after {
+  width: 100%;
+}
+
+main {
+  animation: fadeInPage 0.4s ease-out;
+}
+
+@keyframes fadeInPage {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+html {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+table {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+}
+
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(102, 126, 234, 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(102, 126, 234, 0.5);
+}
+
+.navbar__items--right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ============================================================
+   RTL (Urdu) Support
+   ============================================================ */
+
+[dir="rtl"] {
+  text-align: right;
+}
+
+[dir="rtl"] .navbar__items--right,
+[dir="rtl"] .navbar__items--left {
+  flex-direction: row-reverse;
+}
+
+[dir="rtl"] .menu__list-item {
+  text-align: right;
+}
+
+[dir="rtl"] .pagination-nav__link {
+  text-align: right;
+}
+
+[dir="rtl"] .pagination-nav__sublabel {
+  text-align: right;
+}
+
+[dir="rtl"] blockquote {
+  border-left: none;
+  border-right: 4px solid var(--ifm-color-primary);
+  border-radius: 12px 0 0 12px;
+  padding: 1rem 1.5rem;
+}
+
+[dir="rtl"] .theme-doc-breadcrumbs {
+  direction: rtl;
+}
+
+[dir="rtl"] .table-of-contents {
+  direction: rtl;
+}
+
+[dir="rtl"] .table-of-contents__link {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+[dir="rtl"] .markdown h1,
+[dir="rtl"] .markdown h2,
+[dir="rtl"] .markdown h3 {
+  text-align: right;
+}
+
+/* Urdu font for RTL text */
+[dir="rtl"] body,
+[dir="rtl"] p,
+[dir="rtl"] li,
+[dir="rtl"] h1,
+[dir="rtl"] h2,
+[dir="rtl"] h3,
+[dir="rtl"] h4,
+[dir="rtl"] h5,
+[dir="rtl"] h6 {
+  font-family: 'Noto Nastaliq Urdu', 'Inter', -apple-system, sans-serif;
 }
