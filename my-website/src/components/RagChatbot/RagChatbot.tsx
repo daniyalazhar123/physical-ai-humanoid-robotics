@@ -11,7 +11,10 @@ const API_URL = process.env.NODE_ENV === 'production'
   ? '/api/v1/chat/chat'
   : 'http://localhost:8000/api/v1/chat/chat'
 
-const API_TOKEN = 'physical-ai-secret-2025'
+const API_TOKEN =
+  typeof process !== 'undefined' && process.env
+    ? process.env.NEXT_PUBLIC_CHAT_TOKEN
+    : undefined
 
 export default function RagChatbot() {
   const [open, setOpen] = useState(false)
@@ -47,7 +50,7 @@ export default function RagChatbot() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-token': API_TOKEN,
+          ...(API_TOKEN ? { 'x-api-token': API_TOKEN } : {}),
         },
         body: JSON.stringify({
           message: query,
