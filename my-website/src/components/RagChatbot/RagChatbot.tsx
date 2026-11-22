@@ -76,6 +76,10 @@ export default function RagChatbot() {
     }
   }
 
+  const toggleOpen = () => {
+    setOpen(prev => !prev)
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -87,8 +91,9 @@ export default function RagChatbot() {
     <>
       <button
         className={styles.fab}
-        onClick={() => setOpen(!open)}
+        onClick={toggleOpen}
         aria-label="Toggle chatbot"
+        type="button"
       >
         {open ? '✕' : '💬'}
       </button>
