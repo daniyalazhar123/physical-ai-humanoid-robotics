@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAuth } from './AuthProvider'
 
 const ROLES = ['Student', 'Teacher', 'Developer', 'Researcher', 'Robotics Engineer'] as const
@@ -22,6 +22,12 @@ export default function AuthModal({ open, onClose }: AuthModalProps) {
   const [goal, setGoal] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (open && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('close-chatbot'))
+    }
+  }, [open])
 
   if (!open) return null
 
@@ -51,7 +57,8 @@ export default function AuthModal({ open, onClose }: AuthModalProps) {
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-        <button style={styles.closeBtn} onClick={onClose}>✕</button>
+        <button style={styles.closeBtn} onClick={onClose} aria-label="Close">✕</button>
+        <div style={styles.scrollWrap}>
         <h2 style={styles.title}>{mode === 'signin' ? 'Sign In' : 'Sign Up'}</h2>
 
         <form onSubmit={handleSubmit}>
@@ -138,6 +145,7 @@ export default function AuthModal({ open, onClose }: AuthModalProps) {
             <>Already have an account? <button style={styles.linkBtn} onClick={() => { setMode('signin'); setError('') }}>Sign In</button></>
           )}
         </p>
+        </div>
       </div>
     </div>
   )
@@ -149,31 +157,47 @@ const styles: Record<string, React.CSSProperties> = {
     inset: 0,
     background: 'rgba(0,0,0,0.6)',
     backdropFilter: 'blur(4px)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 9999,
+    zIndex: 20000,
   },
   modal: {
+    position: 'fixed',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
     background: 'rgba(30,30,50,0.95)',
     backdropFilter: 'blur(20px)',
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 16,
-    padding: '2rem',
+    padding: 0,
     width: '90%',
     maxWidth: 420,
+    maxHeight: '90vh',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
     color: '#fff',
-    position: 'relative',
+    zIndex: 20001,
+    boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
   },
   closeBtn: {
     position: 'absolute',
-    top: 12,
-    right: 16,
-    background: 'none',
+    top: 10,
+    right: 14,
+    zIndex: 3,
+    background: 'rgba(0,0,0,0.35)',
     border: 'none',
-    color: '#999',
-    fontSize: 20,
+    borderRadius: '50%',
+    width: 32,
+    height: 32,
+    lineHeight: '32px',
+    color: '#fff',
+    fontSize: 18,
     cursor: 'pointer',
+  },
+  scrollWrap: {
+    padding: '2.5rem 2rem 2rem',
+    overflowY: 'auto',
+    flex: 1,
   },
   title: {
     margin: '0 0 1.5rem',

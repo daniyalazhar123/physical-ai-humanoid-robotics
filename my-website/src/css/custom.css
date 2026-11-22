@@ -208,3 +208,21 @@ table {
 [dir="rtl"] h6 {
   font-family: 'Noto Nastaliq Urdu', 'Inter', -apple-system, sans-serif;
 }
+
+/* Auth buttons (Personalise / Sign In) - always visible, fixed top-right */
+.auth-nav-fixed {
+  position: fixed;
+  top: 0.5rem;
+  right: 6.5rem;
+  z-index: 10002;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 996px) {
+  .auth-nav-fixed {
+    top: 0.55rem;
+    right: 4.5rem;
+  }
+}

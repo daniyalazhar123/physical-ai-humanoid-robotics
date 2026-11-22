@@ -3,7 +3,7 @@ import { useAuth } from './AuthProvider'
 import AuthModal from './AuthModal'
 
 export default function ProfileDropdown() {
-  const { user, loading, signOut } = useAuth()
+  const { user, signOut } = useAuth()
   const [open, setOpen] = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -15,8 +15,6 @@ export default function ProfileDropdown() {
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
-
-  if (loading) return null
 
   if (!user) {
     return (

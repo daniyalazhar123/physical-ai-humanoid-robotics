@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext'
 import styles from './RagChatbot.module.css'
 
 interface ChatMessage {
@@ -7,16 +8,19 @@ interface ChatMessage {
   sources?: string[]
 }
 
-const API_URL = process.env.NODE_ENV === 'production'
-  ? '/api/v1/chat/chat'
-  : 'http://localhost:8000/api/v1/chat/chat'
-
 const API_TOKEN =
   typeof process !== 'undefined' && process.env
     ? process.env.NEXT_PUBLIC_CHAT_TOKEN
     : undefined
 
 export default function RagChatbot() {
+  const { siteConfig } = useDocusaurusContext()
+  const apiBase = String((siteConfig.customFields as any)?.apiUrl || '').replace(/\/+$/, '')
+  const API_URL = apiBase
+    ? apiBase.endsWith('/api/v1/chat/chat')
+      ? apiBase
+      : apiBase + '/api/v1/chat/chat'
+    : '/api/v1/chat/chat'
   const [open, setOpen] = useState(false)
   const [language, setLanguage] = useState<'en' | 'ur'>('en')
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -37,6 +41,15 @@ export default function RagChatbot() {
     }
   }, [open])
 
+  useEffect(() => {
+    const closeHandler = () => setOpen(false)
+    window.addEventListener('close-chatbot', closeHandler)
+    return () => window.removeEventListener('close-chatbot', closeHandler)
+  }, [])
+
+  const NOT_CONNECTED_MSG =
+    'Backend not connected - check NEXT_PUBLIC_API_URL + GEMINI_API_KEY in Vercel Environment Variables'
+
   const handleSend = async () => {
     const query = input.trim()
     if (!query || loading) return
@@ -44,6 +57,8 @@ export default function RagChatbot() {
     setInput('')
     setMessages(prev => [...prev, { role: 'user', content: query }])
     setLoading(true)
+
+    console.log('[RagChatbot] POST', API_URL, { message: query, language })
 
     try {
       const response = await fetch(API_URL, {
@@ -59,21 +74,27 @@ export default function RagChatbot() {
         }),
       })
 
+      console.log('[RagChatbot] response:', response.status, response.url)
+
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`)
+        const message =
+          response.status === 404
+            ? NOT_CONNECTED_MSG
+            : `Chat backend error (HTTP ${response.status}). Please try again.`
+        setMessages(prev => [...prev, { role: 'assistant', content: message }])
+        return
       }
 
       const data = await response.json()
+      const reply = data.reply || data.response
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: data.reply || data.response || 'I don\'t know',
+        content: reply || 'The backend returned an empty response. Check GEMINI_API_KEY in Vercel.',
         sources: data.sources || [],
       }])
-    } catch (err) {
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
-      }])
+    } catch (err: any) {
+      console.error('[RagChatbot] fetch failed:', err)
+      setMessages(prev => [...prev, { role: 'assistant', content: NOT_CONNECTED_MSG }])
     } finally {
       setLoading(false)
     }

@@ -34,6 +34,10 @@ const config = {
     },
   },
 
+  customFields: {
+    apiUrl: process.env.NEXT_PUBLIC_API_URL || '',
+  },
+
   presets: [
     [
       'classic',
