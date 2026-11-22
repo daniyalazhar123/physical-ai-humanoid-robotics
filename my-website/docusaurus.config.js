@@ -25,15 +25,11 @@ const config = {
 
   i18n: {
     defaultLocale: 'en',
-    locales: ['en', 'ur'],
+    locales: ['en'],
     localeConfigs: {
       en: {
         label: 'English',
         direction: 'ltr',
-      },
-      ur: {
-        label: 'اردو',
-        direction: 'rtl',
       },
     },
   },
@@ -90,10 +86,6 @@ const config = {
           {to: '/modules', label: 'Modules', position: 'left'},
           {to: '/new-developments', label: 'New Developments', position: 'left'},
           {
-            type: 'localeDropdown',
-            position: 'right',
-          },
-          {
             href: 'https://github.com/BasenAI',
             label: 'GitHub',
             position: 'right',
@@ -107,7 +99,7 @@ const config = {
             title: 'Courses',
             items: [
               {label: 'Introduction', to: '/docs/intro'},
-              {label: 'Chapter 1: Introduction to Physical AI', to: '/docs/my-book/chapter-1'},
+              {label: 'Chapter 1: Introduction to AI Physical Humanoids Robotics Engineering', to: '/docs/my-book/chapter-1'},
               {label: 'Chapter 2: ROS 2', to: '/docs/my-book/chapter-2'},
               {label: 'Chapter 3: Simulation and Modeling', to: '/docs/my-book/chapter-3'},
               {label: 'Chapter 4: Computer Vision', to: '/docs/my-book/chapter-4'},
@@ -133,7 +125,7 @@ const config = {
             ],
           },
         ],
-        copyright: `Copyright © ${new Date().getFullYear()} Physical AI Textbook. All rights reserved.`,
+        copyright: `Copyright © ${new Date().getFullYear()} AI Physical Humanoids Robotics Engineering. All rights reserved.`,
       },
       prism: {
         theme: prismThemes.github,
