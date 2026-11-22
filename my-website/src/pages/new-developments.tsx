@@ -170,7 +170,7 @@ function NewDevelopmentsHeader() {
         <div className={styles.newDevelopmentsContainer}>
           <div className={styles.newDevelopmentsContent}>
             <Heading as="h1" className="hero__title">
-              Latest Developments in AI Physical Humanoids Robotics Engineering - by CyberForge
+              Latest Developments in AI Physical Humanoids Robotics Engineering
             </Heading>
             <p className="hero__subtitle">
               Stay updated with the most recent breakthroughs, research papers, industrial projects, and global statistics in humanoid AI
@@ -236,7 +236,7 @@ export default function NewDevelopments(): React.ReactNode {
 
   return (
     <Layout
-      title={`Latest Developments - AI Physical Humanoids Robotics Engineering - by CyberForge`}
+      title={`Latest Developments - AI Physical Humanoids Robotics Engineering`}
       description="Latest breakthroughs, research papers, industrial projects, and global statistics in AI Physical Humanoids Robotics Engineering">
       <NewDevelopmentsHeader />
 

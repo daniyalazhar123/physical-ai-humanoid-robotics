@@ -1,6 +1,11 @@
 import { createAuthClient } from 'better-auth/client'
 
-const baseURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/auth'
+const envApiUrl =
+  typeof process !== 'undefined' && process.env
+    ? process.env.NEXT_PUBLIC_API_URL
+    : undefined
+
+const baseURL = envApiUrl || 'http://localhost:3001/api/auth'
 
 export { createAuthClient }
 export const authClient = createAuthClient({ baseURL })

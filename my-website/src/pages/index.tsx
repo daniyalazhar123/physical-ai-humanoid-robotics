@@ -24,7 +24,7 @@ function HomepageHeader() {
                 About This Book
               </Heading>
               <p className={styles.aboutDescription}>
-                "AI Physical Humanoids Robotics Engineering" - by CyberForge is a comprehensive textbook designed by leading scholars
+                "AI Physical Humanoids Robotics Engineering" is a comprehensive textbook designed by leading scholars
                 and professors from internationally recognized universities. This groundbreaking work bridges
                 the gap between digital intelligence and physical systems, providing students and professionals
                 with the knowledge needed to develop the next generation of intelligent robots.
@@ -90,7 +90,7 @@ export default function Home(): React.ReactNode {
   return (
     <Layout
       title={`AI Physical Humanoids Robotics Engineering`}
-      description="A comprehensive textbook on AI Physical Humanoids Robotics Engineering - by CyberForge">
+      description="A comprehensive textbook on AI Physical Humanoids Robotics Engineering">
       <HomepageHeader />
       <main>
         <HomepageFeatures />
