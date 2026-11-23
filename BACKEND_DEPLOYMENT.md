@@ -3,6 +3,42 @@
 ## Overview
 This repository contains a RAG (Retrieval-Augmented Generation) chatbot backend for the Physical AI & Humanoid Robotics textbook. The backend is built with FastAPI and deployed on Vercel.
 
+## Chosen deployment (this repo): separate Vercel project for the backend
+
+The backend is deployed as its **own Vercel project** with **Root Directory = `backend-api`**,
+Framework Preset = **Other**, Build Command = `pip install -r requirements.txt`.
+`backend-api/vercel.json` routes every path to the FastAPI ASGI app in `backend-api/api/index.py`.
+The frontend remains a separate Vercel project with Root Directory = `my-website`.
+No rewrites are used in the frontend project.
+
+### Backend Vercel project env vars (names only; set values in Vercel UI)
+
+- `GEMINI_API_KEY`
+- `COHERE_API_KEY`
+- `NEON_URL`
+- `BETTER_AUTH_SECRET`
+- `BETTER_AUTH_URL`
+- `FRONTEND_URL`
+- `GROK_API_KEY` (optional)
+- `JWT_EXPIRY_HOURS` (optional)
+
+Never commit these values. The backend reads them via `os.environ` only.
+
+### Frontend Vercel project env var
+
+- `NEXT_PUBLIC_API_URL` = the live backend URL (e.g. `https://<backend-project>.vercel.app`)
+
+Redeploy the frontend after setting it. If it is missing, auth and translation show
+"Backend URL not configured" instead of calling localhost.
+
+### Exposed backend endpoints
+
+`GET /`, `GET /health`, `GET /test`, `POST /api/v1/chat/chat`,
+`GET /api/v1/chat/conversation`, `GET /api/v1/content`,
+`POST /api/v1/auth/sign-up`, `POST /api/v1/auth/sign-in`,
+`POST /api/translate` (Gemini Urdu translation).
+Email/password only; no passkey or WebAuthn.
+
 ## Architecture
 - **FastAPI**: Web framework for the API
 - **Cohere**: For generating text embeddings

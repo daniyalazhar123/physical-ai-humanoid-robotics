@@ -1,168 +1,163 @@
 #!/usr/bin/env python3
 """
-Initialization script for Physical AI & Humanoid Robotics RAG Chatbot
-This script will:
-1. Set up the database schema
-2. Index the textbook content into the vector database
-3. Verify all services are working
+Initialize the Physical AI RAG Chatbot.
+
+Steps:
+  1. Create database schema (pgvector + all tables)
+  2. Index all .md / .mdx files from my-website/docs into PostgreSQL (FTS)
+  3. Verify with a test query
+
+Usage:
+  python initialize.py
 """
 
 import asyncio
-import os
-import subprocess
 import sys
 from pathlib import Path
 
-# Add the backend-api directory to the path
 sys.path.insert(0, str(Path(__file__).parent))
 
+import asyncpg
 from dotenv import load_dotenv
 
-# Load environment variables from .env file in the backend-api directory
-env_path = Path(__file__).parent / ".env"
-load_dotenv(dotenv_path=env_path)
+load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
+from config import settings
 from services.document_processor import DocumentProcessor
-from services.rag_service import RAGService
-from services.database_service import DatabaseService
 
-async def setup_database():
-    """Set up the database schema"""
-    print("Setting up database schema...")
+SCHEMA_PATH = Path(__file__).parent / "database_schema.sql"
 
-    # Execute the SQL schema against the Neon database
-    import asyncpg
 
+async def step_schema() -> None:
+    print("=" * 60)
+    print("  STEP 1/3: Applying database schema...")
+    print("=" * 60)
+
+    if not SCHEMA_PATH.exists():
+        raise FileNotFoundError(f"Schema file not found: {SCHEMA_PATH}")
+
+    sql = SCHEMA_PATH.read_text(encoding="utf-8")
+    conn = await asyncpg.connect(settings.neon_url)
     try:
-        # Connect to the database
-        neon_url = os.getenv("NEON_URL")
-        if not neon_url:
-            print("X NEON_URL environment variable not set!")
-            return False
-
-        # Extract database connection info from the URL
-        # The Neon URL format is typically: postgresql://user:password@ep-xxx.apirest.region.aws.neon.tech/dbname?sslmode=require
-        import urllib.parse
-        parsed = urllib.parse.urlparse(neon_url)
-
-        # Connect without specifying database to create extensions
-        conn = await asyncpg.connect(
-            host=parsed.hostname,
-            port=parsed.port,
-            user=parsed.username,
-            password=parsed.password,
-            database=parsed.path[1:] if parsed.path else 'neondb',
-            ssl='require'
-        )
-
-        # Read the schema file
-        schema_file = Path(__file__).parent / "database_schema.sql"
-        with open(schema_file, 'r', encoding='utf-8') as f:
-            schema_sql = f.read()
-
-        # Execute the schema
-        await conn.execute(schema_sql)
+        for stmt in (s.strip() for s in sql.split(";") if s.strip()):
+            try:
+                await conn.execute(stmt)
+            except Exception as exc:
+                msg = str(exc)[:120]
+                if "already exists" in msg:
+                    print(f"    -> {msg}")
+                else:
+                    print(f"    !  {msg}")
+        print("  [OK] Schema applied\n")
+    finally:
         await conn.close()
 
-        print("✓ Database schema set up successfully!")
-        return True
-    except Exception as e:
-        print(f"X Error setting up database schema: {str(e)}")
-        return False
 
-async def index_documents():
-    """Index textbook content into the vector database"""
-    print("Indexing textbook content...")
+async def step_index() -> int:
+    print("=" * 60)
+    print("  STEP 2/3: Indexing textbook content...")
+    print("=" * 60)
 
-    try:
-        processor = DocumentProcessor()
+    docs_dir = Path(settings.docs_path)
+    print(f"  Docs path: {docs_dir}")
+    if not docs_dir.is_dir():
+        print(f"  [ERR] Directory not found: {docs_dir}")
+        print(f"  Set DOCS_PATH in .env to point to your my-website/docs folder")
+        return 0
 
-        # Check collection stats before indexing
-        stats_before = processor.get_collection_stats()
-        print(f"Documents before indexing: {stats_before.get('vector_count', 0)}")
-
-        # Index documents
-        success = await processor.reindex_all_documents()
-
-        if success:
-            stats_after = processor.get_collection_stats()
-            print(f"Documents after indexing: {stats_after.get('vector_count', 0)}")
-            print("✓ Document indexing completed successfully!")
-            return True
-        else:
-            print("X Document indexing failed!")
-            return False
-    except Exception as e:
-        print(f"X Error indexing documents: {str(e)}")
-        return False
-
-async def verify_services():
-    """Verify that all services are working correctly"""
-    print("Verifying services...")
-
-    try:
-        # Test RAG service
-        rag_service = RAGService()
-        await rag_service.initialize_services()
-
-        # Test health check
-        is_healthy = rag_service.health_check()
-        if is_healthy:
-            print("✓ RAG service is healthy!")
-        else:
-            print("X RAG service health check failed!")
-            return False
-
-        # Test a simple query
-        result = await rag_service.process_query(
-            query="What is Physical AI?",
-            chat_history=[]
-        )
-
-        if result["response"] and result["response"] != "I don't know":
-            print("✓ RAG service query test passed!")
-        else:
-            print("? RAG service query returned 'I don't know' - this might be expected if no documents are indexed yet")
-
-        await rag_service.db_service.close()
-        return True
-    except Exception as e:
-        print(f"X Error verifying services: {str(e)}")
-        return False
-
-async def main():
-    """Main initialization function"""
-    print("Starting Physical AI & Humanoid Robotics RAG Chatbot initialization...")
+    md_files = list(docs_dir.rglob("*.md")) + list(docs_dir.rglob("*.mdx"))
+    print(f"  Files found: {len(md_files)}")
+    if md_files:
+        print(f"  First file: {md_files[0].relative_to(docs_dir)}")
+        print(f"  Last file:  {md_files[-1].relative_to(docs_dir)}")
     print()
 
-    results = []
-
-    # Set up database
-    results.append(await setup_database())
-    print()
-
-    # Index documents
-    results.append(await index_documents())
-    print()
-
-    # Verify services
-    results.append(await verify_services())
-    print()
-
-    # Summary
-    passed = sum(results)
-    total = len(results)
-
-    print(f"Initialization Summary: {passed}/{total} steps completed successfully")
-
-    if passed == total:
-        print("Initialization completed successfully!")
-        print("✓ You can now start the application with: uvicorn main:app --reload")
-        return True
+    proc = DocumentProcessor()
+    count = await proc.reindex_all()
+    if count > 0:
+        print(f"\n  [OK] {count} chunks indexed (FTS search ready)")
     else:
-        print("? Some initialization steps failed. Please check the logs above.")
-        return False
+        print("\n  [WARN] No content indexed -- check docs path")
+    return count
+
+
+async def step_verify(count: int) -> None:
+    print("=" * 60)
+    print("  STEP 3/3: Verifying the pipeline...")
+    print("=" * 60)
+
+    if count == 0:
+        print("  [SKIP] No content -- skipping verification")
+        return
+
+    from services.rag_service import TextbookAgent
+
+    agent = TextbookAgent()
+    await agent.start()
+    try:
+        cnt = await agent.health_check()
+        print(f"  DB chunks:  {cnt['embeddings_count']}")
+        print(f"  LLM:        {cnt.get('llm', 'N/A')}")
+        print()
+
+        # Test 1: FTS search for topic in docs
+        test_query = "What is ROS 2 and how does it work?"
+        print(f"  Test query: '{test_query}'")
+        print()
+
+        result = await agent.run(test_query)
+        resp = result.get("response", "")
+        tool = result.get("tool_used")
+        sources = result.get("sources", [])
+        chunk_count = result.get("chunk_count", 0)
+
+        print(f"  Tool used:        {tool}")
+        print(f"  Chunks retrieved: {chunk_count}")
+        if sources:
+            print(f"  Sources:")
+            for s in sources:
+                print(f"    - {s}")
+
+        print()
+        if resp:
+            preview = resp[:500]
+            print(f"  Response (first 500 chars):")
+            print(f"  {preview}")
+        else:
+            print("  [WARN] Empty response")
+
+    finally:
+        await agent.stop()
+
+
+async def main() -> int:
+    print()
+    print("   Physical AI -- RAG Chatbot Initialization")
+    print("   =========================================")
+    print()
+
+    await step_schema()
+    count = await step_index()
+
+    if count > 0:
+        await step_verify(count)
+
+    print("=" * 60)
+    if count > 0:
+        print("  [OK] Initialization complete.")
+        print()
+        print("  Start the backend:")
+        print("    uvicorn main:app --reload --host 0.0.0.0 --port 8000")
+        print()
+        print("  Test chat:")
+        print('    curl -X POST http://localhost:8000/api/v1/chat/chat -H "Content-Type: application/json" -d \'{"message":"what is ros 2"}\'')
+        print()
+        return 0
+    else:
+        print("  [ERR] No content indexed. Check DOCS_PATH in .env")
+        return 1
+
 
 if __name__ == "__main__":
-    success = asyncio.run(main())
-    sys.exit(0 if success else 1)
+    exit_code = asyncio.run(main())
+    sys.exit(exit_code)

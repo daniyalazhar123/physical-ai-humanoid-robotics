@@ -1,52 +1,57 @@
 """Configuration settings for the Physical AI & Humanoid Robotics RAG Chatbot"""
 
 import os
-from typing import Optional
+from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
 
 class Settings:
-    """Application settings loaded from environment variables"""
-
     def __init__(self):
-        # API Keys and Service URLs
         self.cohere_api_key: str = os.getenv("COHERE_API_KEY", "")
-        self.qdrant_url: str = os.getenv("QDRANT_URL", "")
-        self.qdrant_api_key: str = os.getenv("QDRANT_API_KEY", "")
         self.gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+        self.grok_api_key: str = os.getenv("GROK_API_KEY", "")
         self.neon_url: str = os.getenv("NEON_URL", "")
-
-        # API Authentication
         self.api_token: str = os.getenv("API_TOKEN", "your-api-token-here")
 
-        # Database settings
+        self.embeddings_table: str = os.getenv("EMBEDDINGS_TABLE", "embeddings")
         self.db_pool_size: int = int(os.getenv("DB_POOL_SIZE", "5"))
         self.db_pool_overflow: int = int(os.getenv("DB_POOL_OVERFLOW", "10"))
 
-        # Qdrant settings
-        self.qdrant_collection_name: str = os.getenv("QDRANT_COLLECTION_NAME", "humanoid_ai_book")
+        self.gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.grok_model: str = os.getenv("GROK_MODEL", "grok-2-1212")
+        self.max_tokens: int = int(os.getenv("MAX_TOKENS", "2048"))
+        self.temperature: float = float(os.getenv("TEMPERATURE", "0.3"))
 
-        # Validation
-        self._validate_required_vars()
+        self.docs_path: str = os.getenv(
+            "DOCS_PATH",
+            str(
+                Path(__file__).resolve().parent.parent.parent
+                / "my-website"
+                / "docs"
+            ),
+        )
 
-    def _validate_required_vars(self):
-        """Validate that all required environment variables are set"""
-        required_vars = [
-            ("COHERE_API_KEY", self.cohere_api_key),
-            ("QDRANT_URL", self.qdrant_url),
-            ("QDRANT_API_KEY", self.qdrant_api_key),
-            ("GEMINI_API_KEY", self.gemini_api_key),
-            ("NEON_URL", self.neon_url),
-        ]
+        self.auth_secret: str = os.getenv(
+            "BETTER_AUTH_SECRET", os.getenv("AUTH_SECRET", "change-me-in-production")
+        )
+        self.better_auth_url: str = os.getenv("BETTER_AUTH_URL", "")
+        self.frontend_url: str = os.getenv("FRONTEND_URL", "")
+        self.jwt_expiry_hours: int = int(os.getenv("JWT_EXPIRY_HOURS", "72"))
 
-        missing_vars = [name for name, value in required_vars if not value]
+        self._validate()
 
-        if missing_vars:
-            raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+    def _validate(self):
+        missing = []
+        if not self.cohere_api_key:
+            missing.append("COHERE_API_KEY")
+        if not self.gemini_api_key:
+            missing.append("GEMINI_API_KEY")
+        if not self.neon_url:
+            missing.append("NEON_URL")
+        if missing:
+            print(f"Warning: Missing env vars: {', '.join(missing)}")
 
 
-# Create a global settings instance
 settings = Settings()

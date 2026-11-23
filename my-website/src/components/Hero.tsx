@@ -3,6 +3,8 @@ import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import styles from './Hero.module.css';
 import Heading from '@theme/Heading';
+import { useAuth } from './auth/AuthProvider';
+import AuthModal from './auth/AuthModal';
 
 interface IndustryCardProps {
   isActive: boolean;
@@ -63,9 +65,11 @@ function IndustryCard({ isActive, onClick }: IndustryCardProps) {
 }
 
 export default function HeroSection() {
+  const { user } = useAuth();
   const [activeCard, setActiveCard] = useState<number | null>(null);
   const [progress, setProgress] = useState(35);
   const [showModules, setShowModules] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
 
   const modules = [
     { id: 1, title: 'Module 1: Introduction to AI Physical Humanoids Robotics Engineering', duration: '2 weeks', chapters: [{ id: 1, title: 'Chapter 1: The New World', description: 'Introduction to AI Physical Humanoids Robotics Engineering', path: '/docs/my-book/chapter-1' }, { id: 2, title: 'Chapter 2: ROS 2 - The Robotic Nervous System', description: 'Understanding Robot Operating System 2', path: '/docs/my-book/chapter-2' }] },
@@ -103,6 +107,17 @@ export default function HeroSection() {
                 Start Learning
               </Link>
             </div>
+
+            {!user && (
+              <div className={styles.authButtons}>
+                <button className={styles.authPrimary} onClick={() => setAuthOpen(true)}>
+                  Personalise My Learning
+                </button>
+                <button className={styles.authSecondary} onClick={() => setAuthOpen(true)}>
+                  Sign In
+                </button>
+              </div>
+            )}
 
             <div className={styles.modulesSection}>
               <button className={styles.modulesButton} onClick={() => setShowModules(!showModules)}>
@@ -177,6 +192,7 @@ export default function HeroSection() {
           </div>
         </div>
       </div>
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
     </header>
   );
 }

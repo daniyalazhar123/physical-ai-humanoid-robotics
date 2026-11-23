@@ -19,10 +19,10 @@ export default function ProfileDropdown() {
   if (!user) {
     return (
       <>
-        <button onClick={() => setAuthOpen(true)} style={styles.authBtn}>
+        <button className="navbar-auth-btn" onClick={() => setAuthOpen(true)} style={styles.authBtn}>
           Personalise
         </button>
-        <button onClick={() => setAuthOpen(true)} style={styles.authBtn}>
+        <button className="navbar-auth-btn" onClick={() => setAuthOpen(true)} style={styles.authBtn}>
           Sign In
         </button>
         <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />

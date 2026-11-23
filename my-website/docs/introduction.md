@@ -103,4 +103,4 @@ Daniyal Azhar is a researcher and educator working at the intersection of Artifi
 - Conversational Robotics
 - Physical AI Implementation
 
-Ready to dive into the future of embodied artificial intelligence? Start with the [Introduction](./intro.md) to learn more!
+Ready to dive into the future of embodied artificial intelligence? Start with the [Introduction](/docs/intro) to learn more!

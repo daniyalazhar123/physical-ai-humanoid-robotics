@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext'
 import { authClient } from '../../lib/auth-client'
+import { setApiBaseUrl } from '../../lib/api'
 
 export interface User {
   id: string
@@ -32,6 +34,10 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const { siteConfig } = useDocusaurusContext()
+  const apiUrl = String((siteConfig.customFields as any)?.apiUrl || '')
+  if (apiUrl) setApiBaseUrl(apiUrl)
+
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -44,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: session.user.email,
           name: session.user.name,
           role: (session.user as any).role,
-          skillLevel: (session.user as any).skillLevel,
+          skillLevel: (session.user as any).skillLevel ?? (session.user as any).skill_level,
           image: session.user.image,
           background_software: (session.user as any).background_software,
           background_hardware: (session.user as any).background_hardware,

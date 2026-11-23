@@ -1,521 +1,529 @@
-import asyncio
-from typing import List, Dict, Any, Optional, AsyncGenerator
-import logging
-import cohere
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
-import google.generativeai as genai
-from openai import OpenAI
-import os
-from dataclasses import dataclass
+"""
+OpenAI-style Agent using native google.generativeai SDK (Gemini) with Grok fallback.
 
-from services.database_service import DatabaseService
+Architecture:
+  - Tool: retrieve_textbook_knowledge(query) -> PostgreSQL full-text search (FTS)
+  - Primary LLM: Gemini (google.generativeai SDK, native function calling)
+  - Fallback LLM: Grok (openai SDK, OpenAI-compatible function calling)
+  - Last resort: return compiled textbook chunks directly (no LLM needed)
+
+Key design: FTS is the PRIMARY retrieval mechanism (not a fallback).
+No external embedding API needed. Works entirely via PostgreSQL to_tsvector.
+"""
+
+import asyncio
+import json
+import logging
+import re
+from typing import Any, Dict, List, Optional
+
+import asyncpg
+import google.generativeai as genai
+from google.generativeai import protos
+from openai import OpenAI
+
 from config import settings
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-@dataclass
-class Document:
-    id: str
-    content: str
-    metadata: Dict[str, Any]
 
-class RAGService:
-    def __init__(self):
-        # Initialize database service for chat history persistence
-        self.db_service = DatabaseService()
+# ---------------------------------------------------------------------------
+# Gemini FunctionDeclaration for the tool
+# ---------------------------------------------------------------------------
 
-        # Qdrant collection name
-        self.collection_name = "humanoid_ai_book"
+RETRIEVE_TOOL = protos.FunctionDeclaration(
+    name="retrieve_textbook_knowledge",
+    description="Search the Physical AI & Humanoid Robotics textbook for content relevant to the user's question. Use this FIRST before answering.",
+    parameters=protos.Schema(
+        type=protos.Type.OBJECT,
+        properties={
+            "query": protos.Schema(
+                type=protos.Type.STRING,
+                description="The search query — use the user's actual question verbatim.",
+            ),
+        },
+        required=["query"],
+    ),
+)
 
-        # Initialize clients as None - will be initialized when first used
-        self._cohere_client = None
-        self._qdrant_client = None
+GEMINI_TOOLS = [protos.Tool(function_declarations=[RETRIEVE_TOOL])]
 
-    @property
-    def cohere_client(self):
-        if self._cohere_client is None:
-            self._cohere_client = cohere.Client(settings.cohere_api_key)
-        return self._cohere_client
+SYSTEM_PROMPT = (
+    "You are Atlas, an expert tutor for Physical AI & Humanoid Robotics.\n\n"
+    "## Your tools\n"
+    "- `retrieve_textbook_knowledge` — searches the official textbook for relevant excerpts. Always call this first.\n\n"
+    "## Rules\n"
+    "1. ALWAYS call `retrieve_textbook_knowledge` with the user's question first.\n"
+    "2. If the returned content answers the question, use ONLY that content. Cite the chapter and section.\n"
+    "3. If NO relevant content is found, answer from your general robotics knowledge.\n"
+    "4. Label whether information comes from the textbook or general knowledge.\n"
+    "5. Use markdown formatting. Wrap code in fenced blocks.\n"
+    "6. Keep answers educational and concise (2-5 paragraphs).\n\n"
+    "## Textbook modules\n"
+    "- ROS 2: Nodes, topics, services, actions, TF2, Nav2, ROS 2 Control\n"
+    "- Gazebo: Simulation, URDF/SDF, sensors, plugins, physics engines\n"
+    "- NVIDIA Isaac Sim: Digital twins, Omniverse, RTX, PhysX, RL, synthetic data\n"
+    "- VLA Models: RT-2, Pi-Zero, OpenVLA, Octo, flow matching"
+)
 
-    @property
-    def qdrant_client(self):
-        if self._qdrant_client is None:
-            self._qdrant_client = QdrantClient(
-                url=settings.qdrant_url,
-                api_key=settings.qdrant_api_key,
-            )
-        return self._qdrant_client
 
-    def _get_gemini_client(self):
-        """Initialize and return Gemini client"""
-        genai.configure(api_key=settings.gemini_api_key)
-        model = genai.GenerativeModel('gemini-pro')
-        return model
+# ---------------------------------------------------------------------------
+# Agent class
+# ---------------------------------------------------------------------------
 
-    def _get_grok_client(self):
-        """Initialize and return Grok client"""
-        # Try to get the grok API key with fallback handling
-        try:
-            # First, try to access the grok_api_key directly
-            api_key = settings.grok_api_key
-        except AttributeError:
-            # If the attribute doesn't exist, try to use gemini as fallback
-            logger.warning("grok_api_key not found, falling back to gemini for compatibility")
-            # Create a temporary OpenAI client using gemini API key as a fallback
-            # However, this won't work well since Gemini doesn't use OpenAI format
-            # So we'll raise a more informative error
-            raise AttributeError("grok_api_key not found in settings. Please restart the application after updating config.py properly")
 
-        client = OpenAI(
-            api_key=api_key,
-            base_url="https://api.groq.com/openai/v1"
+class TextbookAgent:
+    """OpenAI-style agent using Gemini (primary) / Grok (fallback) with function calling."""
+
+    def __init__(self) -> None:
+        self._pg_pool: Optional[asyncpg.Pool] = None
+        self._gemini_model: Optional[genai.GenerativeModel] = None
+        self._grok_client: Optional[OpenAI] = None
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def start(self) -> None:
+        """Initialize DB pool and LLM clients."""
+        # DB pool (required)
+        self._pg_pool = await asyncpg.create_pool(
+            settings.neon_url,
+            min_size=settings.db_pool_size,
+            max_size=settings.db_pool_overflow,
         )
-        return client
+        async with self._pg_pool.acquire() as conn:
+            await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_embeddings_fts ON embeddings "
+                "USING GIN (to_tsvector('english', chunk_text))"
+            )
+        logger.info("DB pool ready")
 
-    async def initialize_services(self):
-        """Initialize dependent services like database connection"""
-        await self.db_service.initialize()
-
-    def _ensure_collection_exists(self):
-        """Ensure the Qdrant collection exists with the correct configuration"""
+        # Gemini (optional — may fail if quota exhausted)
         try:
-            # Check if collection exists
-            collections = self.qdrant_client.get_collections()
-            collection_names = [collection.name for collection in collections.collections]
+            genai.configure(api_key=settings.gemini_api_key)
+            self._gemini_model = genai.GenerativeModel(
+                model_name=settings.gemini_model,
+                tools=GEMINI_TOOLS,
+                system_instruction=SYSTEM_PROMPT,
+            )
+            logger.info("Gemini model ready: %s", settings.gemini_model)
+        except Exception as e:
+            logger.warning("Gemini init skipped: %s", str(e)[:100])
 
-            if self.collection_name not in collection_names:
-                # Create collection with specified payload schema
-                self.qdrant_client.create_collection(
-                    collection_name=self.collection_name,
-                    vectors_config=models.VectorParams(
-                        size=1024,  # Cohere embed v3 has 1024 dimensions
-                        distance=models.Distance.COSINE
-                    )
+        # Grok (optional)
+        if settings.grok_api_key:
+            try:
+                self._grok_client = OpenAI(
+                    api_key=settings.grok_api_key,
+                    base_url="https://api.x.ai/v1",
+                    max_retries=0,
                 )
-                logger.info(f"Created Qdrant collection: {self.collection_name}")
-            else:
-                logger.info(f"Qdrant collection exists: {self.collection_name}")
-        except Exception as e:
-            logger.error(f"Error ensuring collection exists: {str(e)}")
-            raise
+                logger.info("Grok client ready")
+            except Exception as e:
+                logger.warning("Grok init skipped: %s", str(e)[:100])
 
-    def _load_sample_content(self):
-        """This method is no longer needed since we're using Qdrant Cloud"""
-        # Content should be pre-loaded in Qdrant Cloud
-        pass
+        logger.info("TextbookAgent started")
 
-    def _generate_embeddings(self):
-        """This method is no longer needed since we're using Cohere embeddings with Qdrant"""
-        # Embeddings are generated by Cohere and stored in Qdrant
-        pass
+    async def stop(self) -> None:
+        if self._pg_pool:
+            await self._pg_pool.close()
 
-    def _find_relevant_documents(self, query: str, top_k: int = 3) -> List[Document]:
-        """Find the most relevant documents for a query using Qdrant semantic search"""
-        try:
-            # Generate embedding for the query using Cohere
-            response = self.cohere_client.embed(
-                texts=[query],
-                model="embed-english-v3.0",
-                input_type="search_query"
-            )
-            query_embedding = response.embeddings[0]
+    # ------------------------------------------------------------------
+    # FTS-based retrieval (no embeddings needed)
+    # ------------------------------------------------------------------
 
-            # Query Qdrant for similar documents using the correct API for the installed version
-            search_result = self.qdrant_client.query_points(
-                collection_name=self.collection_name,
-                query=query_embedding,
-                limit=top_k,
-                with_payload=True
-            )
+    async def _search_fts(self, query: str, top_k: int = 8) -> List[Dict[str, Any]]:
+        """PostgreSQL keyword search with word-boundary regex (primary) and FTS fallback.
 
-            # Convert search results to Document objects
-            documents = []
-            for result in search_result.points:
-                documents.append(Document(
-                    id=str(result.id),
-                    content=result.payload.get("text", "") if result.payload else "",
-                    metadata={
-                        "chapter": result.payload.get("chapter", "") if result.payload else "",
-                        "section": result.payload.get("section", "") if result.payload else "",
-                        "source_url": result.payload.get("source_url", "") if result.payload else "",
-                        "score": result.score
-                    }
-                ))
-
-            return documents
-        except Exception as e:
-            logger.error(f"Error finding relevant documents: {str(e)}")
+        1. Word-boundary regex on individual query words (fast, accurate)
+        2. plainto_tsquery (AND match) if regex yields nothing
+        """
+        clean_query = re.sub(r'[^\w\s]', ' ', query).strip()
+        if not clean_query:
             return []
 
-    async def process_query(self, query: str, selected_text: Optional[str] = None,
-                           chat_history: Optional[List[Dict[str, str]]] = None,
-                           context: Optional[Dict[str, Any]] = None,
-                           conversation_id: Optional[str] = None) -> Dict[str, Any]:
-        """Process a query using RAG methodology"""
+        stop_words = {'what', 'is', 'the', 'how', 'does', 'this', 'that', 'and', 'are',
+                      'for', 'with', 'was', 'were', 'its', 'their', 'can', 'will',
+                      'has', 'had', 'have', 'not', 'but', 'you', 'all', 'any',
+                      'each', 'which', 'who', 'whom', 'why', 'where', 'when'}
+        words = [w for w in clean_query.lower().split()
+                 if len(w) > 2 and w not in stop_words]
+        if not words:
+            return []
+
         try:
-            # If selected_text exists, answer ONLY from selected_text
-            if selected_text:
-                logger.info("Using selected_text for response generation")
-                context_text = selected_text
-                relevant_docs = []
-            else:
-                # Find relevant documents from Qdrant
-                relevant_docs = self._find_relevant_documents(query)
-
-                # If no relevant content found, respond with "I don't know"
-                if not relevant_docs:
-                    logger.info("No relevant content found in Qdrant")
-                    result = {
-                        "response": "I don't know",
-                        "sources": [],
-                        "context": {
-                            "retrieved_docs": 0,
-                            "query": query
-                        }
-                    }
-                    # Store user query and response in database if conversation_id provided
-                    if conversation_id:
-                        await self.db_service.add_message(conversation_id, "user", query)
-                        await self.db_service.add_message(conversation_id, "assistant", result["response"])
-                    return result
-
-                # Create context from relevant documents
-                context_text = "\n".join([doc.content for doc in relevant_docs])
-
-            # If conversation_id is provided, get history from database
-            if conversation_id:
-                db_history = await self.db_service.get_conversation_history(conversation_id)
-                # Combine with any provided history
-                if chat_history:
-                    full_history = db_history + chat_history
-                else:
-                    full_history = db_history
-            else:
-                full_history = chat_history or []
-
-            # Generate response using available LLM - check which API is properly configured
-            response = await self._generate_response_with_available_llm(query, context_text, full_history)
-
-            # Extract sources from relevant documents
-            sources = [doc.metadata.get("source_url", "") for doc in relevant_docs if doc.metadata.get("source_url")]
-
-            result = {
-                "response": response,
-                "sources": sources,
-                "context": {
-                    "retrieved_docs": len(relevant_docs),
-                    "query": query
-                }
-            }
-
-            # Generate Urdu translation if needed
-            urdu_translation = await self._translate_to_urdu(response) if response != "I don't know" and response != "I'm sorry, I encountered an error processing your request. Please try again." else None
-
-            # Store user query and response in database if conversation_id provided
-            if conversation_id:
-                await self.db_service.add_message(conversation_id, "user", query)
-                await self.db_service.add_message(conversation_id, "assistant", response, urdu_translation)
-
-            return result
-        except Exception as e:
-            logger.error(f"Error processing query: {str(e)}")
-            result = {
-                "response": "I'm sorry, I encountered an error processing your request. Please try again.",
-                "sources": [],
-                "context": {}
-            }
-            # Store error response in database if conversation_id provided
-            if conversation_id:
-                await self.db_service.add_message(conversation_id, "user", query, None)
-                await self.db_service.add_message(conversation_id, "assistant", result["response"], None)
-            return result
-
-    async def _translate_to_urdu(self, text: str) -> Optional[str]:
-        """Translate text to Urdu using Gemini"""
-        try:
-            # Only translate if text is substantial
-            if not text or len(text.strip()) < 5:
-                return None
-
-            model = self._get_gemini_client()
-
-            prompt = f"Translate the following text to Urdu (اُردو). Only respond with the translation and nothing else:\n\n{text}"
-
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.3,
-                    max_output_tokens=1000
+            async with self._pg_pool.acquire() as conn:
+                # Strategy 1: word-boundary regex on individual words
+                # This avoids FTS issues (e.g. 'ros' matching 'microprocessors')
+                pattern = '|'.join(re.escape(w) for w in words)
+                rows = await conn.fetch(
+                    f"""
+                    SELECT chunk_text, chapter, section, source_url,
+                           (SELECT COUNT(*) FROM regexp_matches(chunk_text, $1, 'gi')) AS score
+                    FROM {settings.embeddings_table}
+                    WHERE chunk_text ~* $1
+                    ORDER BY score DESC
+                    LIMIT $2
+                    """,
+                    f'\\m(?:{pattern})\\M',
+                    top_k,
                 )
-            )
 
-            translation = response.text if response.text else None
+                # Strategy 2: FTS AND match as fallback
+                if not rows:
+                    rows = await conn.fetch(
+                        f"""
+                        SELECT chunk_text, chapter, section, source_url,
+                               ts_rank(to_tsvector('english', chunk_text),
+                                       plainto_tsquery('english', $1)) AS score
+                        FROM {settings.embeddings_table}
+                        WHERE to_tsvector('english', chunk_text) @@ plainto_tsquery('english', $1)
+                        ORDER BY score DESC
+                        LIMIT $2
+                        """,
+                        clean_query,
+                        top_k,
+                    )
 
-            # Ensure we only return the translation, not additional text
-            if translation and ".Translate" in translation:
-                # If Gemini added extra text, try to extract just the translation
-                if ":" in translation:
-                    translation = translation.split(":", 1)[1].strip()
+                return [
+                    {
+                        "text": r["chunk_text"] or "",
+                        "chapter": r["chapter"] or "",
+                        "section": r["section"] or "",
+                        "source_url": r["source_url"] or "",
+                        "score": float(r["score"] or 0),
+                    }
+                    for r in rows
+                ]
+        except Exception as exc:
+            logger.error("DB search failed: %s", exc)
+            return []
 
-            return translation
-        except Exception as e:
-            logger.error(f"Error translating to Urdu: {str(e)}")
+    @staticmethod
+    def _chunks_to_text(chunks: List[Dict[str, Any]]) -> str:
+        if not chunks:
+            return json.dumps({
+                "found": False,
+                "message": "No relevant content found in the textbook. Answer from general knowledge."
+            })
+        lines = []
+        for i, c in enumerate(chunks, 1):
+            lines.append(f"[Source {i}] Chapter: {c['chapter']} | Section: {c['section']}")
+            if c["source_url"]:
+                lines.append(f"URL: {c['source_url']}")
+            lines.append("-" * 50)
+            lines.append(c["text"])
+            lines.append("")
+        lines.append(f"\nRetrieved {len(chunks)} excerpts above. Use these to answer the user's question.")
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Agent loop — Gemini path
+    # ------------------------------------------------------------------
+
+    async def _run_gemini(
+        self,
+        query: str,
+        selected_text: Optional[str] = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if self._gemini_model is None:
             return None
 
-    async def _generate_response_with_available_llm(self, query: str, context: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
-        """Generate response using the first available LLM (Grok first, then Gemini, with mock fallback)"""
-        # Ensure this method never raises an exception
+        user_content = query
+        if selected_text:
+            user_content = f"[Page context]:\n{selected_text}\n\n[Question]:\n{query}"
+
+        chat = self._gemini_model.start_chat(enable_automatic_function_calling=False)
+
+        if chat_history:
+            for msg in chat_history[-6:]:
+                role = "user" if msg.get("role") == "user" else "model"
+                chat.history.append(protos.Content(
+                    role=role,
+                    parts=[protos.Part(text=msg.get("content", ""))],
+                ))
+
+        loop = asyncio.get_running_loop()
+
         try:
-            # Try Grok first
-            try:
-                response = await self._generate_response_with_grok(query, context, chat_history)
-                # Only return if we got a valid response
-                if response and response not in ["I don't know", "I'm sorry, I encountered an error processing your request. Please try again."]:
-                    return response
-            except (AttributeError, Exception) as e:
-                logger.info(f"Grok not available ({str(e)}), falling back to Gemini")
-
-            # If Grok didn't work or failed, try Gemini
-            try:
-                response = await self._generate_response_with_gemini(query, context, chat_history)
-                # Only return if we got a valid response
-                if response and response not in ["I don't know", "I'm sorry, I encountered an error processing your request. Please try again."]:
-                    return response
-            except Exception as gemini_e:
-                logger.info(f"Gemini also failed ({str(gemini_e)}), using mock response")
-
-            # If both failed, use mock response
-            return self._generate_mock_response(query, context)
-        except Exception as e:
-            # This should never happen due to the above exception handling,
-            # but as a final fallback, return a mock response
-            logger.error(f"Unexpected error in _generate_response_with_available_llm: {str(e)}")
-            return self._generate_mock_response(query, context)
-
-    def _generate_mock_response(self, query: str, context: str) -> str:
-        """Generate a mock response when both LLMs fail"""
-        logger.info(f"Generating mock response for query: {query[:50]}...")
-
-        # If there's context from the documents, try to form a response based on it
-        if context and len(context.strip()) > 0:
-            # Look for key phrases in the context that might answer the query
-            context_lower = context.lower()
-            query_lower = query.lower()
-
-            # Simple keyword matching to form a response
-            if "physical ai" in query_lower and "physical ai" in context_lower:
-                return "Physical AI refers to the field of artificial intelligence that deals with physical systems and real-world interaction. It encompasses robotics, embodied AI, and systems that interact with the physical world."
-            elif "humanoid" in query_lower and "humanoid" in context_lower:
-                return "Humanoid robotics involves robots with human-like form and capabilities. These systems typically include bipedal locomotion, human-like manipulation, and social interaction capabilities."
-            elif "robotics" in query_lower:
-                return "Robotics is an interdisciplinary field that includes mechanical engineering, electrical engineering, computer science, and others. It deals with the design, construction, operation, and use of robots."
-            elif "ros" in query_lower and "ros" in context_lower:
-                return "ROS (Robot Operating System) is a flexible framework for writing robot software. It's a collection of tools, libraries, and conventions that aim to simplify the task of creating complex and robust robot behavior."
-            elif "simulation" in query_lower:
-                return "Simulation in robotics provides a safe and cost-effective way to test algorithms, train robots, and develop systems before deploying them in the real world."
-            else:
-                # Return a response indicating the system found relevant info but can't generate a full answer
-                return f"Based on the textbook content, I found information related to your query about '{query}'. The content covers this topic in the provided textbook chapters."
-        else:
-            # No context found
-            return "I couldn't find specific information about this topic in the current textbook content. Please try rephrasing your question or check other chapters."
-
-    async def _generate_response_with_grok(self, query: str, context: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
-        """Generate response using Grok based on query and context"""
-        try:
-            # Format chat history for context
-            history_text = ""
-            if chat_history:
-                for msg in chat_history[-5:]:  # Use last 5 messages as context
-                    role = msg.get('role', 'user')
-                    content = msg.get('content', '')
-                    history_text += f"{role.capitalize()}: {content}\n"
-
-            # Prepare the prompt for Grok
-            prompt = f"""
-            You are an academic tutor specializing in Physical AI & Humanoid Robotics.
-            Answer the following question based on the provided context in an academic, concise, and tutor-style manner.
-
-            Conversation History:
-            {history_text}
-
-            Context: {context}
-
-            Question: {query}
-
-            Provide a clear, factual answer based only on the context provided.
-            If the context doesn't contain the information needed to answer the question, respond with "I don't know".
-            Do not hallucinate or make up information.
-            """
-
-            # Check if grok_api_key exists in settings before proceeding
-            if not hasattr(settings, 'grok_api_key'):
-                raise AttributeError("grok_api_key not found in settings")
-
-            client = self._get_grok_client()
-
-            # Generate response using Grok (using chat completion API)
-            response = client.chat.completions.create(
-                model="llama3-70b-8192",  # Using a Grok-compatible model
-                messages=[
-                    {"role": "system", "content": "You are an academic tutor specializing in Physical AI & Humanoid Robotics. Provide accurate, concise answers based on the provided context."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=1000
+            resp = await loop.run_in_executor(
+                None,
+                lambda: chat.send_message(user_content),
             )
+        except Exception as exc:
+            logger.warning("Gemini round-1 failed: %s", str(exc)[:200])
+            return None
 
-            # Return the generated text
-            return response.choices[0].message.content if response.choices[0].message.content else "I don't know"
-        except Exception as e:
-            logger.error(f"Error generating response with Grok: {str(e)}")
-            raise  # Re-raise to trigger fallback in _generate_response_with_available_llm
+        if not resp.candidates or not resp.candidates[0].content.parts:
+            return None
 
-    async def _generate_response_with_gemini(self, query: str, context: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
-        """Generate response using Gemini based on query and context"""
+        first_part = resp.candidates[0].content.parts[0]
+        if not first_part.function_call:
+            return {
+                "response": resp.candidates[0].content.text or "",
+                "sources": [],
+                "tool_used": None,
+                "chunk_count": 0,
+            }
+
+        fc = first_part.function_call
+        args = {key: val for key, val in fc.args.items()}
+        search_query = args.get("query", query)
+        chunks = await self._search_fts(search_query)
+        tool_result = self._chunks_to_text(chunks)
+        sources = list({c["source_url"] for c in chunks if c["source_url"]})
+
         try:
-            # Format chat history for context
-            history_text = ""
-            if chat_history:
-                for msg in chat_history[-5:]:  # Use last 5 messages as context
-                    role = msg.get('role', 'user')
-                    content = msg.get('content', '')
-                    history_text += f"{role.capitalize()}: {content}\n"
+            func_resp = await loop.run_in_executor(
+                None,
+                lambda: chat.send_message(
+                    protos.Content(
+                        parts=[protos.Part(
+                            function_response=protos.FunctionResponse(
+                                name=fc.name,
+                                response={"result": tool_result},
+                            )
+                        )],
+                    )
+                ),
+            )
+        except Exception as exc:
+            logger.warning("Gemini round-2 failed: %s", str(exc)[:200])
+            return {
+                "response": self._fallback_answer(query, chunks),
+                "sources": sources,
+                "tool_used": "retrieve_textbook_knowledge (gemini-fallback)",
+                "chunk_count": len(chunks),
+            }
 
-            # Prepare the prompt for Gemini
-            prompt = f"""
-            You are an academic tutor specializing in Physical AI & Humanoid Robotics.
-            Answer the following question based on the provided context in an academic, concise, and tutor-style manner.
+        final_text = ""
+        if func_resp.candidates and func_resp.candidates[0].content.parts:
+            final_text = func_resp.candidates[0].content.text or ""
 
-            Conversation History:
-            {history_text}
+        if not final_text:
+            final_text = self._fallback_answer(query, chunks)
 
-            Context: {context}
+        return {
+            "response": final_text,
+            "sources": sources,
+            "tool_used": "retrieve_textbook_knowledge (gemini)",
+            "chunk_count": len(chunks),
+        }
 
-            Question: {query}
+    # ------------------------------------------------------------------
+    # Agent loop — Grok fallback (OpenAI SDK)
+    # ------------------------------------------------------------------
 
-            Provide a clear, factual answer based only on the context provided.
-            If the context doesn't contain the information needed to answer the question, respond with "I don't know".
-            Do not hallucinate or make up information.
-            """
+    OPENAI_TOOL_DEF = {
+        "type": "function",
+        "function": {
+            "name": "retrieve_textbook_knowledge",
+            "description": "Search the Physical AI & Humanoid Robotics textbook for content relevant to the user's question.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query.",
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+    }
 
-            model = self._get_gemini_client()
+    async def _run_grok(
+        self,
+        query: str,
+        selected_text: Optional[str] = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if not self._grok_client:
+            return None
 
-            # Generate response using Gemini
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.7,
-                    max_output_tokens=1000
+        messages: List[Dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        if chat_history:
+            for msg in chat_history[-6:]:
+                messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+
+        user_content = query
+        if selected_text:
+            user_content = f"[Page context]:\n{selected_text}\n\n[Question]:\n{query}"
+        messages.append({"role": "user", "content": user_content})
+
+        loop = asyncio.get_running_loop()
+
+        try:
+            resp = await loop.run_in_executor(
+                None,
+                lambda: self._grok_client.chat.completions.create(
+                    model=settings.grok_model,
+                    messages=messages,
+                    tools=[self.OPENAI_TOOL_DEF],
+                    tool_choice="auto",
+                    temperature=settings.temperature,
+                    max_tokens=settings.max_tokens,
+                ),
+            )
+            choice = resp.choices[0]
+            msg = choice.message
+        except Exception as exc:
+            logger.warning("Grok round-1 failed: %s", str(exc)[:200])
+            return None
+
+        if not msg.tool_calls:
+            return {
+                "response": msg.content or "",
+                "sources": [],
+                "tool_used": None,
+                "chunk_count": 0,
+            }
+
+        messages.append(msg)
+        sources: List[str] = []
+        chunks: List[Dict[str, Any]] = []
+        tool_used = ""
+
+        for tc in msg.tool_calls:
+            if tc.function.name == "retrieve_textbook_knowledge":
+                tool_used = tc.function.name
+                args = json.loads(tc.function.arguments)
+                search_query = args.get("query", query)
+                chunks = await self._search_fts(search_query)
+                tool_result = self._chunks_to_text(chunks)
+                sources = list({c["source_url"] for c in chunks if c["source_url"]})
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": tool_result,
+                })
+
+        try:
+            resp2 = await loop.run_in_executor(
+                None,
+                lambda: self._grok_client.chat.completions.create(
+                    model=settings.grok_model,
+                    messages=messages,
+                    temperature=settings.temperature,
+                    max_tokens=settings.max_tokens,
+                ),
+            )
+            final_text = resp2.choices[0].message.content or ""
+        except Exception as exc:
+            logger.warning("Grok round-2 failed: %s", str(exc)[:200])
+            return None
+
+        if not final_text:
+            return None
+
+        return {
+            "response": final_text,
+            "sources": sources,
+            "tool_used": tool_used,
+            "chunk_count": len(chunks),
+        }
+
+    # ------------------------------------------------------------------
+    # Main run — try Gemini -> Grok -> raw FTS chunks
+    # ------------------------------------------------------------------
+
+    async def run(
+        self,
+        query: str,
+        selected_text: Optional[str] = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
+    ) -> Dict[str, Any]:
+        if not self._pg_pool:
+            return {"response": "Service not initialized. Please try again.", "sources": [], "tool_used": None, "chunk_count": 0}
+
+        # Try Gemini
+        result = await self._run_gemini(query, selected_text, chat_history)
+        if result and result.get("response"):
+            resp_lower = result["response"].strip().lower()
+            if "unavailable" not in resp_lower and len(resp_lower) > 20:
+                logger.info("Gemini returned answer (%d chars)", len(result["response"]))
+                return result
+            logger.warning("Gemini returned error/short response")
+
+        logger.info("Gemini failed -> trying Grok fallback")
+
+        # Try Grok
+        result = await self._run_grok(query, selected_text, chat_history)
+        if result and result.get("response"):
+            resp_lower = result["response"].strip().lower()
+            if "unavailable" not in resp_lower and len(resp_lower) > 20:
+                logger.info("Grok returned answer (%d chars)", len(result["response"]))
+                return result
+            logger.warning("Grok returned error/short response")
+
+        # Last resort: return raw textbook chunks (always works)
+        logger.info("Both LLMs failed -> returning raw textbook chunks")
+        chunks = await self._search_fts(query)
+        return {
+            "response": self._fallback_answer(query, chunks),
+            "sources": list({c["source_url"] for c in chunks if c["source_url"]}),
+            "tool_used": "raw-chunks",
+            "chunk_count": len(chunks),
+        }
+
+    # ------------------------------------------------------------------
+    # Fallback formatter
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _fallback_answer(query: str, chunks: List[Dict[str, Any]]) -> str:
+        if not chunks:
+            return (
+                "I couldn't find specific information about that in the textbook. "
+                "Try asking about ROS 2, Gazebo, NVIDIA Isaac Sim, or VLA models.\n\n"
+                "Here are some topics covered in the textbook:\n"
+                "- Chapter 1: Introduction to Physical & Embodied AI\n"
+                "- Chapter 2: ROS 2 & Robot Software Architecture\n"
+                "- Chapter 3: Simulation and Modeling\n"
+                "- Chapter 4: Computer Vision\n"
+                "- Chapter 5: Vision-Language-Action (VLA) Systems\n"
+                "- Chapter 6: Humanoid Development\n"
+                "- Chapter 7: Conversational Robotics\n"
+                "- Chapter 8: Advanced Concepts\n"
+                "- Chapter 9: Advanced Topics\n"
+                "- Chapter 10: Future Directions"
+            )
+        lines = [f"Based on the textbook, here is what I found about '{query}':\n"]
+        for i, c in enumerate(chunks[:3], 1):
+            preview = c["text"][:600].strip()
+            chapter_info = f"{c['chapter']}/{c['section']}" if c['chapter'] else c['section']
+            lines.append(f"**Excerpt {i}** (from {chapter_info}):\n{preview}...\n")
+        if len(chunks) > 3:
+            lines.append(f"\n*{len(chunks)} relevant passages found. Switch to a more specific question for details.*")
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Health
+    # ------------------------------------------------------------------
+
+    async def health_check(self) -> Dict[str, Any]:
+        status: Dict[str, Any] = {"pgvector": False, "embeddings_count": 0, "llm": "unknown"}
+        try:
+            async with self._pg_pool.acquire() as conn:
+                count = await conn.fetchval(
+                    f"SELECT COUNT(*) FROM {settings.embeddings_table}"
                 )
-            )
+                status["pgvector"] = True
+                status["embeddings_count"] = count or 0
+        except Exception as exc:
+            status["pgvector_error"] = str(exc)
 
-            # Return the generated text
-            return response.text if response.text else "I don't know"
-        except Exception as e:
-            logger.error(f"Error generating response with Gemini: {str(e)}")
-            return "I don't know"
-
-    async def process_query_stream(self, query: str, selected_text: Optional[str] = None,
-                                  chat_history: Optional[List[Dict[str, str]]] = None,
-                                  context: Optional[Dict[str, Any]] = None,
-                                  conversation_id: Optional[str] = None) -> AsyncGenerator[str, None]:
-        """Process a query and return response in streaming fashion"""
         try:
-            # If selected_text exists, answer ONLY from selected_text
-            if selected_text:
-                logger.info("Using selected_text for streaming response generation")
-                context_text = selected_text
-                relevant_docs = []
-            else:
-                # Find relevant documents from Qdrant
-                relevant_docs = self._find_relevant_documents(query)
+            if self._gemini_model:
+                status["llm"] = settings.gemini_model
+        except Exception as exc:
+            status["llm_error"] = str(exc)[:100]
 
-                # If no relevant content found, respond with "I don't know"
-                if not relevant_docs:
-                    logger.info("No relevant content found in Qdrant")
-                    response = "I don't know"
-                    # Store user query and response in database if conversation_id provided
-                    if conversation_id:
-                        await self.db_service.add_message(conversation_id, "user", query)
-                        await self.db_service.add_message(conversation_id, "assistant", response)
-                    yield response
-                    return
+        return status
 
-                # Create context from relevant documents
-                context_text = "\n".join([doc.content for doc in relevant_docs])
-
-            # If conversation_id is provided, get history from database
-            if conversation_id:
-                db_history = await self.db_service.get_conversation_history(conversation_id)
-                # Combine with any provided history
-                if chat_history:
-                    full_history = db_history + chat_history
-                else:
-                    full_history = db_history
-            else:
-                full_history = chat_history or []
-
-            # Format chat history for context
-            history_text = ""
-            if full_history:
-                for msg in full_history[-5:]:  # Use last 5 messages as context
-                    role = msg.get('role', 'user')
-                    content = msg.get('content', '')
-                    history_text += f"{role.capitalize()}: {content}\n"
-
-            # Prepare the prompt for Grok
-            prompt = f"""
-            You are an academic tutor specializing in Physical AI & Humanoid Robotics.
-            Answer the following question based on the provided context in an academic, concise, and tutor-style manner.
-
-            Conversation History:
-            {history_text}
-
-            Context: {context_text}
-
-            Question: {query}
-
-            Provide a clear, factual answer based only on the context provided.
-            If the context doesn't contain the information needed to answer the question, respond with "I don't know".
-            Do not hallucinate or make up information.
-            """
-
-            # Generate response using available LLM - check which API is properly configured
-            # For streaming, we'll use the non-streaming approach but with the available LLM
-            full_response = await self._generate_response_with_available_llm(query, context_text, full_history)
-
-            # Simulate streaming by yielding the response in chunks
-            chunk_size = 50  # characters per chunk
-            for i in range(0, len(full_response), chunk_size):
-                chunk = full_response[i:i + chunk_size]
-                yield chunk
-
-            # Generate Urdu translation if needed
-            urdu_translation = await self._translate_to_urdu(full_response) if full_response != "I don't know" and full_response != "I'm sorry, I encountered an error processing your request." else None
-
-            # Store user query and response in database if conversation_id provided
-            if conversation_id:
-                await self.db_service.add_message(conversation_id, "user", query)
-                await self.db_service.add_message(conversation_id, "assistant", full_response, urdu_translation)
-        except Exception as e:
-            logger.error(f"Error processing streaming query: {str(e)}")
-            error_response = "I'm sorry, I encountered an error processing your request."
-            # Store error response in database if conversation_id provided
-            if conversation_id:
-                await self.db_service.add_message(conversation_id, "user", query, None)
-                await self.db_service.add_message(conversation_id, "assistant", error_response, None)
-            yield error_response
-
-    def health_check(self) -> bool:
-        """Check if the RAG service is healthy"""
-        try:
-            # Test Qdrant connection by getting collection info
-            collections = self.qdrant_client.get_collections()
-            collection_names = [collection.name for collection in collections.collections]
-            return self.collection_name in collection_names
-        except:
-            return False
+    async def is_healthy(self) -> bool:
+        h = await self.health_check()
+        return h["pgvector"] and h["embeddings_count"] > 0

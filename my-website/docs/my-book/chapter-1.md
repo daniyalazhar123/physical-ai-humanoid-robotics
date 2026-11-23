@@ -2,7 +2,15 @@
 sidebar_position: 1
 ---
 
+import ChapterActions from './chapter-1/ChapterActions'
+
 # Chapter 1: Introduction to Physical & Embodied AI
+
+<ChapterActions
+  chapterTitle="Chapter 1: Introduction to Physical & Embodied AI"
+  chapterContent="The convergence of artificial intelligence and physical systems represents one of the most transformative developments of the 21st century. Physical AI & Humanoid Robotics is not merely an incremental advancement in technology, but a paradigm shift that fundamentally redefines the relationship between digital intelligence and the physical world. This chapter introduces the foundational concepts, historical context, and future implications of this revolutionary field."
+/>
+
 
 ## Introduction: The Dawn of Physical Intelligence
 

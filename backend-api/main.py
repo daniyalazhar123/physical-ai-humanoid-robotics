@@ -1,8 +1,10 @@
+import asyncio
 import logging
 import os
 from typing import Optional
 
 import asyncpg
+import google.generativeai as genai
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -29,6 +31,12 @@ class ChatRequest(BaseModel):
     lang: Optional[str] = "en"
     language: Optional[str] = None
     context: Optional[str] = None
+
+
+class TranslateRequest(BaseModel):
+    text: str
+    targetLang: Optional[str] = "ur"
+    target_lang: Optional[str] = None
 
 app.include_router(auth_router)
 
@@ -174,6 +182,45 @@ async def content_list():
     except Exception as e:
         logger.exception("Content list error")
         return {"chapters": []}
+
+
+@app.post("/api/translate")
+@app.post("/api/v1/translate")
+async def translate(request: TranslateRequest):
+    text = (request.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text required")
+    if not settings.gemini_api_key:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY not configured")
+
+    target = request.target_lang or request.targetLang or "ur"
+    lang_name = "Urdu (اُردو)" if target == "ur" else target
+    prompt = (
+        f"Translate the following textbook content to {lang_name}. "
+        "Preserve markdown formatting and do not translate code blocks. "
+        f"Only respond with the translation:\n\n{text}"
+    )
+
+    last_error: Optional[Exception] = None
+    tried = set()
+    for model_name in (settings.gemini_model, "gemini-2.5-flash", "gemini-3.8-flash"):
+        if not model_name or model_name in tried:
+            continue
+        tried.add(model_name)
+        try:
+            genai.configure(api_key=settings.gemini_api_key)
+            model = genai.GenerativeModel(model_name)
+            response = await asyncio.to_thread(model.generate_content, prompt)
+            translated = (response.text or "").strip()
+            if translated:
+                return {"translatedText": translated, "targetLang": target}
+            last_error = ValueError("empty translation from Gemini")
+        except Exception as exc:
+            last_error = exc
+            logger.warning("Translation with model %s failed: %s", model_name, str(exc)[:200])
+
+    logger.error("All translation models failed: %s", last_error)
+    raise HTTPException(status_code=502, detail=f"Translation failed: {str(last_error)[:200]}")
 
 
 @app.get("/debug/auth")

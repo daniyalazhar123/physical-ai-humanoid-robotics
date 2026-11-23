@@ -23,7 +23,7 @@ const sidebars = {
         {
           type: 'doc',
           id: 'intro',
-          label: 'Introduction to Physical AI & Humanoid Robotics'
+          label: 'Introduction to AI Physical Humanoids Robotics Engineering'
         },
         {
           type: 'doc',

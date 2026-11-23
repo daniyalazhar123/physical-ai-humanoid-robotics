@@ -209,20 +209,22 @@ table {
   font-family: 'Noto Nastaliq Urdu', 'Inter', -apple-system, sans-serif;
 }
 
-/* Auth buttons (Personalise / Sign In) - always visible, fixed top-right */
-.auth-nav-fixed {
-  position: fixed;
-  top: 0.5rem;
-  right: 6.5rem;
-  z-index: 10002;
+/* Auth buttons (Personalise / Sign In) rendered as real navbar items */
+.navbar-auth-buttons {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
+.navbar-auth-btn {
+  white-space: nowrap;
+}
+
 @media (max-width: 996px) {
-  .auth-nav-fixed {
-    top: 0.55rem;
-    right: 4.5rem;
+  .navbar-auth-buttons {
+    width: 100%;
+    justify-content: flex-start;
+    padding: 0.35rem 0;
+    flex-wrap: wrap;
   }
 }

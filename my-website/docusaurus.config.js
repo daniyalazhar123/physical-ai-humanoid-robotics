@@ -90,6 +90,10 @@ const config = {
           {to: '/modules', label: 'Modules', position: 'left'},
           {to: '/new-developments', label: 'New Developments', position: 'left'},
           {
+            type: 'custom-auth',
+            position: 'right',
+          },
+          {
             href: 'https://github.com/BasenAI',
             label: 'GitHub',
             position: 'right',

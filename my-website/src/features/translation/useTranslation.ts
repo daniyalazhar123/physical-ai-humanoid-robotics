@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { buildApiUrl } from '../../lib/api'
 
 interface TranslationResult {
   translatedText: string
@@ -19,7 +20,9 @@ export function useTranslation() {
     setResult({ translatedText: '', isLoading: true, error: null })
 
     try {
-      const response = await fetch('/api/v1/translate', {
+      const url = buildApiUrl('/api/translate')
+      console.log('[useTranslation] POST', url)
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -29,19 +32,21 @@ export function useTranslation() {
           targetLang: targetLang === 'ur' ? 'ur' : targetLang,
         }),
       })
+      console.log('[useTranslation] response', response.status, url)
 
-      const data = await response.json()
-      if (!response.ok || data.error) {
-        setResult({ translatedText: '', isLoading: false, error: data.error || 'Translation failed' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data.error || data.detail || !data.translatedText) {
+        setResult({ translatedText: '', isLoading: false, error: 'Translation failed, try again' })
       } else {
         setResult({
-          translatedText: data.translatedText || 'Translation unavailable',
+          translatedText: data.translatedText,
           isLoading: false,
           error: null,
         })
       }
     } catch (err: any) {
-      setResult({ translatedText: '', isLoading: false, error: err.message })
+      console.error('[useTranslation] failed', err)
+      setResult({ translatedText: '', isLoading: false, error: 'Translation failed, try again' })
     }
   }, [])
 
